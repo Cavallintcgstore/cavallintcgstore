@@ -1,0 +1,1618 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cavallin TCG Store - Maestro dos Leilões</title>
+    <!-- Chosen Palette: Vibrant Glass (Deep Indigo background, with translucent panels and Cyan/Pink/Orange gradient accents) -->
+    <!-- Application Structure Plan: Adicionada a gestão completa do ciclo de vida do leilão. Implementada a nomeação de leilões, relatórios pós-leilão (geral e individual por cliente) e um histórico persistente. O fluxo de dados foi expandido para registrar arremates e atualizar o dashboard dinamicamente. -->
+    <!-- Visualization & Content Choices: Criadas novas telas para relatórios, utilizando a identidade visual existente para consistência. A UI foi adaptada para incluir modais de criação e relatórios detalhados, com foco na clareza e usabilidade das novas informações. -->
+    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- PDF Generation Libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Arial:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        @import url('https://fonts.cdnfonts.com/css/gobold');
+        :root {
+            --bg-main: #121124;
+            --panel-bg: rgba(30, 28, 62, 0.5);
+            --panel-border: rgba(41, 211, 232, 0.2);
+            --accent-cyan: #29D3E8;
+            --accent-pink: #E91E63;
+            --accent-red: #F44336;
+            --text-light: #FFFFFF;
+            --text-medium: #E0E0E0;
+            --text-dark: #BDBDBD;
+            --gradient-action: linear-gradient(90deg, var(--accent-pink), var(--accent-red));
+            font-size: 16px; /* Base font size */
+        }
+        body { 
+            font-family: 'Arial', sans-serif; 
+            background-color: var(--bg-main);
+            color: var(--text-light);
+        }
+        .font-gobold { font-family: 'Gobold', sans-serif; }
+        .bg-panel { 
+            background-color: var(--panel-bg); 
+            backdrop-filter: blur(12px); 
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--panel-border);
+        }
+        .border-accent { border-color: var(--panel-border); }
+        .text-accent-cyan { color: var(--accent-cyan); }
+        .shadow-accent { box-shadow: 0 0 20px rgba(41, 211, 232, 0.3); }
+        .chart-container { position: relative; width: 100%; height: 300px; max-height: 40vh; margin: auto; }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: var(--bg-main); }
+        ::-webkit-scrollbar-thumb { background: var(--accent-cyan); border-radius: 4px; }
+        .modal-backdrop {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(18, 17, 36, 0.6);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            z-index: 40;
+            display: none; justify-content: center; align-items: center;
+        }
+        .modal-content {
+            background-color: var(--panel-bg);
+            border: 1px solid var(--panel-border);
+            width: 90%; max-width: 600px; z-index: 50;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        .btn-gradient {
+            background-image: var(--gradient-action);
+        }
+        .no-print {
+            display: block;
+        }
+        /* Classe para preparar o relatório para a captura do PDF */
+        .printing-mode {
+            background: #ffffff !important;
+            color: #000000 !important;
+            padding: 20px;
+            border: none;
+        }
+        .printing-mode .bg-panel, .printing-mode .bg-black\/20 { 
+            background-color: #f3f4f6 !important;
+            border: 1px solid #e5e7eb !important;
+        }
+        .printing-mode .text-accent-cyan { color: #0ea5e9 !important; }
+        .printing-mode .text-text-dark { color: #6b7280 !important; }
+        .printing-mode .text-light, .printing-mode .text-white { color: #000000 !important; }
+        .printing-mode .border-accent { border-color: #d1d5db !important; }
+        .printing-mode .text-yellow-400 { color: #f59e0b !important; }
+        .printing-mode .border-white\/10 { border-color: #e5e7eb !important; }
+        .toggle-bg:after {
+            content: '';
+            @apply absolute top-0.5 left-0.5 bg-white border border-gray-300 rounded-full h-5 w-5 transition shadow-sm;
+        }
+        input:checked + .toggle-bg:after {
+            @apply transform translate-x-full;
+        }
+        input:checked + .toggle-bg {
+            @apply bg-accent-cyan;
+        }
+
+    </style>
+</head>
+<body class="text-text-light">
+    <div id="splash-screen" class="fixed inset-0 z-50 flex flex-col justify-center items-center transition-opacity duration-500" style="background-color: var(--bg-main);">
+        <img src="https://i.ibb.co/MfZ8G2s/espeon-logo-cavallin-tcg-store.jpg" alt="Logo Cavallin TCG Store" class="w-48 h-48 rounded-full mb-4 animate-pulse">
+        <h1 class="font-gobold text-4xl text-accent-cyan">Cavallin TCG Store</h1>
+        <p class="text-text-dark mt-2">Carregando Maestro dos Leilões...</p>
+    </div>
+
+    <div class="flex h-screen">
+        <aside id="sidebar" class="w-16 md:w-64 bg-panel p-4 flex flex-col justify-between transition-all duration-300">
+             <div>
+                <div class="flex items-center justify-center md:justify-start mb-10">
+                    <img src="https://i.ibb.co/MfZ8G2s/espeon-logo-cavallin-tcg-store.jpg" alt="Logo" class="w-10 h-10 rounded-full">
+                    <span class="font-gobold text-lg text-accent-cyan ml-2 hidden md:inline">CAVALLIN TCG STORE</span>
+                </div>
+                <nav class="flex flex-col space-y-4">
+                    <button onclick="navigate('dashboard')" class="nav-link flex items-center p-2 rounded-lg hover:bg-white/5"><svg class="w-6 h-6 text-accent-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg><span class="ml-3 hidden md:inline">Dashboard</span></button>
+                    <button onclick="navigate('auctions')" class="nav-link flex items-center p-2 rounded-lg hover:bg-white/5"><svg class="w-6 h-6 text-accent-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z"></path></svg><span class="ml-3 hidden md:inline">Leilões</span></button>
+                    <button onclick="navigate('clients')" class="nav-link flex items-center p-2 rounded-lg hover:bg-white/5"><svg class="w-6 h-6 text-accent-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M15 21v-1a6 6 0 00-5.197-5.975M15 10a4 4 0 11-8 0 4 4 0 018 0z"></path></svg><span class="ml-3 hidden md:inline">Clientes</span></button>
+                    <button onclick="navigate('reports')" class="nav-link flex items-center p-2 rounded-lg hover:bg-white/5"><svg class="w-6 h-6 text-accent-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg><span class="ml-3 hidden md:inline">Relatórios</span></button>
+                    <button onclick="navigate('settings')" class="nav-link flex items-center p-2 rounded-lg hover:bg-white/5"><svg class="w-6 h-6 text-accent-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg><span class="ml-3 hidden md:inline">Configurações</span></button>
+                </nav>
+            </div>
+            <button id="toggle-sidebar" class="self-center p-2 rounded-full hover:bg-white/5"><svg class="w-6 h-6 text-accent-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16m-7 6h7"></path></svg></button>
+        </aside>
+
+        <main class="flex-1 p-4 md:p-8 overflow-y-auto">
+            <div id="dashboard-page" class="page-content"></div>
+            <div id="auctions-page" class="page-content hidden"></div>
+            <div id="clients-page" class="page-content hidden"></div>
+            <div id="reports-page" class="page-content hidden"></div>
+            <div id="settings-page" class="page-content hidden"></div>
+            <div id="live-auction-page" class="page-content hidden"></div>
+            <div id="add-card-page" class="page-content hidden"></div>
+            <div id="auction-report-page" class="page-content hidden"></div>
+        </main>
+    </div>
+
+    <!-- Modals -->
+    <div id="new-auction-modal" class="modal-backdrop">
+        <div class="modal-content p-6 rounded-xl shadow-accent">
+            <h2 class="font-gobold text-2xl text-accent-cyan mb-4">Criar Novo Leilão</h2>
+            <div><label class="font-bold">Nome do Leilão</label><input type="text" id="new-auction-name" class="w-full p-2 bg-black/20 border-accent rounded-lg mt-1" placeholder="Ex: Leilão de Férias"></div>
+            <div class="mt-4"><label class="font-bold">Data do Leilão</label><input type="date" id="new-auction-date" class="w-full p-2 bg-black/20 border-accent rounded-lg mt-1 text-text-dark"></div>
+            <div class="flex justify-end space-x-4 mt-6">
+                <button onclick="closeModal('new-auction-modal')" class="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20">Cancelar</button>
+                <button onclick="saveNewAuction()" class="px-4 py-2 rounded-lg bg-accent-cyan text-black font-bold hover:opacity-80">Criar e Adicionar Cartas</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="start-auction-confirmation-modal" class="modal-backdrop">
+        <div class="modal-content p-6 rounded-xl shadow-accent text-center">
+            <h2 class="font-gobold text-2xl text-accent-cyan mb-4">Deseja iniciar agora?</h2>
+            <p class="text-text-dark mb-6">Você pode iniciar o leilão agora ou arquivá-lo para começar mais tarde pela tela de Leilões.</p>
+            <div class="flex justify-center space-x-4 mt-6">
+                <button onclick="startAuctionLater()" class="px-6 py-2 rounded-lg bg-white/10 hover:bg-white/20">Iniciar Depois</button>
+                <button onclick="startAuctionNow()" class="px-6 py-2 rounded-lg bg-accent-cyan text-black font-bold hover:opacity-80">Iniciar Agora</button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="delete-client-confirmation-modal" class="modal-backdrop">
+        <div class="modal-content p-6 rounded-xl shadow-accent text-center">
+            <h2 class="font-gobold text-2xl text-red-500 mb-4">Deseja realmente excluir?</h2>
+            <p class="text-text-dark mb-6">Esta ação não pode ser desfeita e removerá o cliente permanentemente.</p>
+            <div class="flex justify-center space-x-4 mt-6">
+                <button onclick="closeModal('delete-client-confirmation-modal')" class="px-6 py-2 rounded-lg bg-white/10 hover:bg-white/20">Não</button>
+                <button id="confirm-delete-client-btn" class="px-6 py-2 rounded-lg btn-gradient text-white font-bold hover:opacity-80">Sim</button>
+            </div>
+        </div>
+    </div>
+
+     <div id="delete-auction-confirmation-modal" class="modal-backdrop">
+        <div class="modal-content p-6 rounded-xl shadow-accent text-center">
+            <h2 class="font-gobold text-2xl text-red-500 mb-4">Deseja realmente excluir este leilão?</h2>
+            <p class="text-text-dark mb-6">Esta ação não pode ser desfeita.</p>
+            <div class="flex justify-center space-x-4 mt-6">
+                <button onclick="closeModal('delete-auction-confirmation-modal')" class="px-6 py-2 rounded-lg bg-white/10 hover:bg-white/20">Não</button>
+                <button id="confirm-delete-auction-btn" class="px-6 py-2 rounded-lg btn-gradient text-white font-bold hover:opacity-80">Sim</button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="arremate-modal" class="modal-backdrop">
+        <div class="modal-content p-6 rounded-xl shadow-accent">
+            <h2 class="font-gobold text-2xl text-accent-cyan mb-4">Arrematar Carta</h2>
+            <div id="modal-card-info" class="mb-4"></div>
+            <label for="client-search" class="block text-sm font-bold mb-2">Buscar Cliente</label>
+            <div class="relative">
+                <input type="text" id="client-search" onkeyup="filterClients(this.value)" class="w-full p-2 bg-black/20 border-accent rounded-lg" placeholder="Digite o nome do cliente...">
+                <div id="client-suggestions" class="absolute z-10 w-full bg-panel mt-1 rounded-lg shadow-lg max-h-40 overflow-y-auto"></div>
+            </div>
+            <button onclick="openQuickClientModal()" class="text-accent-cyan hover:underline mt-2 text-sm">Cadastrar Cliente Rápido</button>
+            <label for="arremate-value" class="block text-sm font-bold mt-4 mb-2">Valor Final do Arremate (R$)</label>
+            <input type="number" id="arremate-value" class="w-full p-2 bg-black/20 border-accent rounded-lg" placeholder="0.00">
+            <div class="flex justify-end space-x-4 mt-6">
+                <button onclick="closeModal('arremate-modal')" class="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20">Cancelar</button>
+                <button id="confirm-arremate-btn" class="px-4 py-2 rounded-lg bg-accent-cyan text-black font-bold hover:opacity-80">Confirmar Arremate</button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="quick-client-modal" class="modal-backdrop">
+        <div class="modal-content p-6 rounded-xl shadow-accent">
+            <h2 class="font-gobold text-2xl text-accent-cyan mb-4">Cadastro Rápido de Cliente</h2>
+            <div><label class="font-bold">Nome</label><input type="text" id="quick-client-name" class="w-full p-2 bg-black/20 border-accent rounded-lg mt-1"></div>
+            <div class="mt-4"><label class="font-bold">Telefone</label><input type="tel" id="quick-client-phone" class="w-full p-2 bg-black/20 border-accent rounded-lg mt-1"></div>
+            <div class="mt-4"><label class="flex items-center"><input type="checkbox" id="complete-later" class="form-checkbox h-5 w-5 text-accent-cyan bg-gray-800 border-gray-600 rounded focus:ring-accent-cyan mr-2"> Completar Cadastro Depois</label></div>
+            <div class="flex justify-end space-x-4 mt-6">
+                <button onclick="closeModal('quick-client-modal')" class="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20">Cancelar</button>
+                <button onclick="saveQuickClient()" class="px-4 py-2 rounded-lg bg-accent-cyan text-black font-bold hover:opacity-80">Salvar Cliente</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="client-modal" class="modal-backdrop">
+        <div id="client-modal-content" class="modal-content p-6 rounded-xl shadow-accent"></div>
+    </div>
+
+    <div id="individual-report-modal" class="modal-backdrop">
+        <div id="individual-report-content" class="modal-content p-6 rounded-xl shadow-accent w-full max-w-4xl"></div>
+    </div>
+
+     <div id="info-modal" class="modal-backdrop">
+        <div id="info-modal-content" class="modal-content p-6 rounded-xl shadow-accent"></div>
+    </div>
+
+    <div id="notification-toast" class="fixed bottom-5 right-5 text-white py-2 px-4 rounded-lg shadow-lg transform translate-y-20 transition-transform duration-300 z-50">
+        Notificação
+    </div>
+    
+<script>
+    const state = {
+        currentPage: 'dashboard',
+        sidebarOpen: true,
+        selectedDate: new Date(),
+        currentAuction: null, // Holds the active auction object
+        currentCardIndex: -1,
+        liveTimer: null,
+        editingClientId: null,
+        auctionReportId: null, // To know which report to show
+        settings: {
+            theme: 'dark',
+            fontSize: '16px', // medium
+            defaultIncrement: 1,
+            defaultTimer: 30,
+            sound: {
+                master: true,
+                timer: true,
+                arremate: true,
+                notification: true
+            },
+            whatsappTemplate: '⚫ Identificação: [Nome da Carta] ([Numeração da Carta])\n🧐 Condição: [Condição]\n💰 Valor Liga: R$ [Valor de Mercado]\n🇯🇵 Idioma: [Idioma]\n🤑 Valor inicial: R$ [Valor Inicial]\n📈 Incremento mínimo: R$ [Incremento Mínimo]'
+        },
+        mockData: {
+            clients: [
+                { id: 1, name: 'Ash Ketchum', phone: '11987654321', city: 'Pallet Town', totalSpent: 1250.75, birthday: '1987-05-22', rg: '123456789', cpf: '12345678901', email: 'ash@pallet.com', cep:'01001-000', address:'Praça da Sé', number:'1', complement:'', district:'Sé', state:'SP' },
+                { id: 2, name: 'Misty Waterflower', phone: '21912345678', city: 'Cerulean City', totalSpent: 850.00, birthday: '1987-04-01', rg: '', cpf: '', email: '', cep:'', address:'', number:'', complement:'', district:'', state:'' },
+                { id: 3, name: 'Brock Harrison', phone: '15998877665', city: 'Pewter City', totalSpent: 450.50, birthday: '1985-08-15', rg: '', cpf: '', email: '', cep:'', address:'', number:'', complement:'', district:'', state:'' },
+                { id: 4, name: 'Nathalia Parisi', phone: '16997848710', city: 'São Carlos', totalSpent: 90.00, birthday: '', rg: '479623910', cpf: '41493712888', email: 'naahparisi@gmail.com', cep:'13560680', address:'Rua Santa Cruz', number:'462', complement:'', district:'Centreville', state:'SP' }
+            ],
+            cardDatabase: [
+                { en_name: 'Charizard VMAX', pt_name: 'Charizard VMAX', collection: '079/073', condition: 'Mint', language: 'JP', cost: 150, initialValue: 200, marketValue: 250, increment: 10, rarity: '✨✨ Rara Ultra', rarityIcon: '✨✨', img: 'https://i.ibb.co/b3D1bQf/charizard.png' },
+                { en_name: 'Pikachu', pt_name: 'Pikachu', collection: '025/198', condition: 'Near Mint', language: 'EN', cost: 5, initialValue: 10, marketValue: 15, increment: 2, rarity: '⚫ Comum', rarityIcon: '⚫', img: 'https://i.ibb.co/3cYfG2R/pikachu.png' },
+                { en_name: 'Umbreon VMAX', pt_name: 'Umbreon VMAX', collection: '215/203', condition: 'Mint', language: 'EN', cost: 250, initialValue: 400, marketValue: 500, increment: 20, rarity: '🌟 Ilustração Rara', rarityIcon: '🌟', img: 'https://i.ibb.co/bXJqZJt/umbreon.png' },
+                { en_name: 'Blastoise', pt_name: 'Blastoise', collection: '2/102', condition: 'Played', language: 'PT-BR', cost: 50, initialValue: 80, marketValue: 100, increment: 5, rarity: '⭐ Rara', rarityIcon: '⭐', img: 'https://i.ibb.co/k2x22kK/blastoise.png' },
+                { en_name: 'Gardevoir ex', pt_name: 'Gardevoir ex', collection: '083/198', condition: 'Near Mint', language: 'JP', cost: 70, initialValue: 100, marketValue: 120, increment: 10, rarity: '⭐⭐ Ultra Rara', rarityIcon: '⭐⭐', img: 'https://i.ibb.co/Yy4VqPq/gardevoir.png' }
+            ],
+            cards: [], // All registered cards
+            auctions: [
+                { id: 202501, name: 'Leilão de Lendas de Kanto', date: '2025-06-25', totalBilled: 12850.50, cardIds: [], winningBids: [], participants: 25, status: 'Finalizado' },
+                { id: 202502, name: 'Especial Eeveelutions', date: '2025-07-02', totalBilled: 15500, cardIds: [], winningBids: [], participants: 18, status: 'Finalizado' },
+                { id: 202503, name: 'Leilão de Férias', date: '2025-07-18', totalBilled: 0, cardIds: [], winningBids: [], participants: 0, status: 'Agendado' }
+            ]
+        }
+    };
+    
+    function showNotification(message, type = 'success') {
+        const toast = document.getElementById('notification-toast');
+        toast.textContent = message;
+        toast.className = 'fixed bottom-5 right-5 text-white py-2 px-4 rounded-lg shadow-lg transform transition-transform duration-300 z-50';
+        if (type === 'success') {
+            toast.classList.add('bg-green-500');
+        } else {
+            toast.classList.add('bg-red-500');
+        }
+        toast.classList.remove('translate-y-20');
+        setTimeout(() => {
+            toast.classList.add('translate-y-20');
+        }, 3000);
+    }
+
+    function openModal(modalId) { document.getElementById(modalId).style.display = 'flex'; }
+    function closeModal(modalId) { document.getElementById(modalId).style.display = 'none'; }
+
+    function navigate(page, id = null) {
+        state.currentPage = page;
+        if (page === 'auction-report') state.auctionReportId = id;
+
+        document.querySelectorAll('.page-content').forEach(p => p.classList.add('hidden'));
+        const targetPage = document.getElementById(`${page}-page`);
+        if (targetPage) {
+            targetPage.classList.remove('hidden');
+            renderPageContent(page);
+        }
+    }
+
+    function renderPageContent(page, searchTerm = '') {
+        const contentDiv = document.getElementById(`${page}-page`);
+        if (!contentDiv) return;
+
+        switch (page) {
+            case 'dashboard': contentDiv.innerHTML = getDashboardHTML(); renderDashboardCharts(); break;
+            case 'auctions': contentDiv.innerHTML = getAuctionsHTML(); break;
+            case 'clients': contentDiv.innerHTML = getClientsHTML(searchTerm); break;
+            case 'reports': contentDiv.innerHTML = getReportsPageHTML(); break;
+            case 'settings': contentDiv.innerHTML = getSettingsHTML(); break;
+            case 'live-auction': if (state.currentAuction) { contentDiv.innerHTML = getLiveAuctionHTML(); updateLiveAuctionCard(); } break;
+            case 'add-card': if(state.currentAuction) { contentDiv.innerHTML = getAddCardHTML(); renderAuctionCardQueue(); } break;
+            case 'auction-report': if(state.auctionReportId) { contentDiv.innerHTML = getAuctionReportHTML(state.auctionReportId); } break;
+        }
+    }
+    
+    function getDashboardHTML() {
+        const {totalBilled, totalCards} = getFilteredDashboardData();
+
+        const currentYear = state.selectedDate.getFullYear();
+        const currentMonth = state.selectedDate.getMonth();
+
+        const yearOptions = [...new Set(state.mockData.auctions.map(a => new Date(a.date).getFullYear()))]
+            .sort((a,b) => b-a)
+            .map(year => `<option value="${year}" ${year === currentYear ? 'selected' : ''}>${year}</option>`).join('');
+
+        const monthOptions = [
+            "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+            "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
+        ].map((month, index) => `<option value="${index}" ${index === currentMonth ? 'selected' : ''}>${month}</option>`).join('');
+
+        return `
+            <div class="flex justify-between items-center mb-4">
+                <h1 class="font-gobold text-4xl text-accent-cyan">Dashboard Principal</h1>
+                <div class="flex items-center gap-4">
+                    <select id="month-filter" onchange="handleDateFilterChange()" class="p-2 bg-panel rounded-lg border border-accent">
+                        ${monthOptions}
+                    </select>
+                     <select id="year-filter" onchange="handleDateFilterChange()" class="p-2 bg-panel rounded-lg border border-accent">
+                        ${yearOptions.length > 0 ? yearOptions : `<option>${currentYear}</option>`}
+                    </select>
+                </div>
+            </div>
+             <p class="mb-8 text-text-dark">Visão geral do desempenho e atalhos rápidos.</p>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                <div class="bg-panel p-6 rounded-xl">
+                    <h2 class="font-gobold text-lg text-text-dark">FATURAMENTO DO MÊS</h2>
+                    <p class="text-4xl font-bold text-text-light">R$ ${totalBilled.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                </div>
+                <div class="bg-panel p-6 rounded-xl">
+                    <h2 class="font-gobold text-lg text-text-dark">CARTAS NO MÊS</h2>
+                    <p class="text-4xl font-bold text-text-light">${totalCards}</p>
+                </div>
+                <button onclick="openNewAuctionModal()" class="btn-gradient text-white p-6 rounded-xl flex flex-col justify-center items-center font-bold text-lg hover:opacity-90 transition-opacity">
+                    <svg class="w-8 h-8 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg>
+                    NOVO LEILÃO
+                </button>
+                <button onclick="openClientModal()" class="bg-panel text-white p-6 rounded-xl flex flex-col justify-center items-center font-bold text-lg hover:bg-white/5 transition-colors">
+                     <svg class="w-8 h-8 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"></path></svg>
+                    NOVO CLIENTE
+                </button>
+            </div>
+            
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
+                <div class="bg-panel p-6 rounded-xl lg:col-span-2">
+                    <h2 class="font-gobold text-2xl text-accent-cyan mb-4">Performance Diária do Mês</h2>
+                    <div class="chart-container"><canvas id="monthlyPerformanceChart"></canvas></div>
+                </div>
+                <div class="bg-panel p-6 rounded-xl">
+                    <h2 class="font-gobold text-2xl text-accent-cyan mb-4">TOP 5 CLIENTES DO MÊS</h2>
+                    <div id="top-clients-ranking"></div>
+                </div>
+            </div>
+            
+             <div class="bg-panel p-6 rounded-xl">
+                <h2 class="font-gobold text-2xl text-accent-cyan mb-4">Vendas por Leilão no Mês</h2>
+                <div class="chart-container" style="max-height: 350px;"><canvas id="auctionSalesChart"></canvas></div>
+            </div>
+        `;
+    }
+
+    function renderDashboardCharts() {
+        const ctxMonthly = document.getElementById('monthlyPerformanceChart')?.getContext('2d');
+        const ctxAuction = document.getElementById('auctionSalesChart')?.getContext('2d');
+        if (!ctxMonthly || !ctxAuction) return;
+
+        const {filteredAuctions} = getFilteredDashboardData();
+
+        // Daily performance for the selected month
+        const dailyData = filteredAuctions.reduce((acc, auction) => {
+            const day = new Date(auction.date).getDate();
+            acc[day] = (acc[day] || 0) + auction.totalBilled;
+            return acc;
+        }, {});
+        
+        const daysInMonth = new Date(state.selectedDate.getFullYear(), state.selectedDate.getMonth() + 1, 0).getDate();
+        const dailyLabels = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+        const dailyValues = dailyLabels.map(day => dailyData[day] || 0);
+        
+        const lineGradient = ctxMonthly.createLinearGradient(0, 0, 0, 300);
+        lineGradient.addColorStop(0, 'rgba(41, 211, 232, 0.5)');
+        lineGradient.addColorStop(1, 'rgba(41, 211, 232, 0)');
+
+        const chartOptions = (isLine = true) => ({
+            maintainAspectRatio: false,
+            plugins: { 
+                legend: { 
+                    labels: { color: 'var(--text-light)' } 
+                },
+                 tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            let label = context.dataset.label || '';
+                            if (label) {
+                                label += ': ';
+                            }
+                            if (context.parsed.y !== null) {
+                                label += new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(context.parsed.y);
+                            }
+                            return label;
+                        }
+                    }
+                }
+            },
+            scales: isLine ? {
+                y: { ticks: { color: 'var(--text-light)' }, grid: { color: 'rgba(255, 255, 255, 0.05)' } },
+                x: { ticks: { color: 'var(--text-light)' }, grid: { color: 'rgba(255, 255, 255, 0.05)' } }
+            } : {}
+        });
+
+        if(window.monthlyChartInstance) window.monthlyChartInstance.destroy();
+        window.monthlyChartInstance = new Chart(ctxMonthly, {
+            type: 'line',
+            data: {
+                labels: dailyLabels,
+                datasets: [{
+                    label: 'Faturamento Diário',
+                    data: dailyValues,
+                    borderColor: 'var(--accent-cyan)',
+                    backgroundColor: lineGradient,
+                    fill: true,
+                    tension: 0.4
+                }]
+            },
+            options: chartOptions()
+        });
+        
+        const auctionSalesData = filteredAuctions
+            .filter(a => a.status === 'Finalizado' && a.totalBilled > 0)
+            .map(a => ({label: a.name, value: a.totalBilled}));
+
+        if(window.auctionChartInstance) window.auctionChartInstance.destroy();
+        window.auctionChartInstance = new Chart(ctxAuction, {
+            type: 'doughnut',
+            data: {
+                labels: auctionSalesData.map(d => d.label),
+                datasets: [{
+                    data: auctionSalesData.map(d => d.value),
+                    backgroundColor: ['#29D3E8', '#E91E63', '#F44336', '#4CAF50', '#9C27B0'],
+                    borderColor: 'var(--text-light)',
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                maintainAspectRatio: false,
+                plugins: { 
+                    legend: { 
+                        position: 'top',
+                        labels: { color: 'var(--text-light)' } 
+                    },
+                    tooltip: {
+                        callbacks: {
+                           label: function(context) {
+                                let label = context.label || '';
+                                if (label) {
+                                    label += ': ';
+                                }
+                                if (context.parsed !== null) {
+                                     label += new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(context.parsed);
+                                }
+                                return label;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        document.getElementById('top-clients-ranking').innerHTML = getTopClientsHTML(filteredAuctions);
+    }
+    
+    // ... (O resto do código permanece o mesmo) ...
+
+    function handleDateFilterChange() {
+        const year = document.getElementById('year-filter').value;
+        const month = document.getElementById('month-filter').value;
+        state.selectedDate = new Date(year, month, 1);
+        renderPageContent('dashboard');
+    }
+
+    function getFilteredDashboardData() {
+        const selectedMonth = state.selectedDate.getMonth();
+        const selectedYear = state.selectedDate.getFullYear();
+
+        const filteredAuctions = state.mockData.auctions.filter(a => {
+            const auctionDate = new Date(a.date);
+            return a.status === 'Finalizado' && 
+                   auctionDate.getMonth() === selectedMonth && 
+                   auctionDate.getFullYear() === selectedYear;
+        });
+
+        const totalBilled = filteredAuctions.reduce((sum, a) => sum + a.totalBilled, 0);
+        const totalCards = filteredAuctions.reduce((sum, a) => sum + a.winningBids.length, 0);
+
+        return { filteredAuctions, totalBilled, totalCards };
+    }
+
+
+    function getTopClientsHTML(filteredAuctions) {
+        const monthlySpending = filteredAuctions
+            .flatMap(a => a.winningBids)
+            .reduce((acc, bid) => {
+                acc[bid.clientId] = (acc[bid.clientId] || 0) + bid.finalValue;
+                return acc;
+            }, {});
+
+        const topClients = Object.entries(monthlySpending)
+            .map(([clientId, total]) => ({
+                client: state.mockData.clients.find(c => c.id === parseInt(clientId)),
+                total
+            }))
+            .filter(item => item.client)
+            .sort((a, b) => b.total - a.total)
+            .slice(0, 5);
+
+        if (topClients.length === 0) {
+            return `<div class="flex items-center justify-center h-full"><p class="text-text-dark">Nenhuma venda registrada neste mês.</p></div>`;
+        }
+
+        const medalColors = ['text-yellow-400', 'text-gray-400', 'text-orange-400'];
+        const medals = ['🥇', '🥈', '🥉'];
+
+        return `
+            <ul class="space-y-3">
+                ${topClients.map((item, index) => `
+                    <li class="flex items-center justify-between p-2 rounded-lg bg-white/5">
+                        <div class="flex items-center">
+                            <span class="text-2xl w-8 text-center ${medalColors[index] || 'text-text-dark'}">${medals[index] || `&nbsp;${index + 1}`}</span>
+                            <span class="ml-3 font-bold">${item.client.name}</span>
+                        </div>
+                        <span class="font-bold text-accent-cyan">R$ ${item.total.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</span>
+                    </li>
+                `).join('')}
+            </ul>
+        `;
+    }
+    
+    function getAuctionsHTML() {
+        return `
+            <div class="flex justify-between items-center mb-8">
+                <h1 class="font-gobold text-4xl text-accent-cyan">Gestão de Leilões</h1>
+                <button onclick="openNewAuctionModal()" class="btn-gradient text-white px-6 py-3 rounded-lg font-bold hover:opacity-90 transition-opacity flex items-center">
+                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg>
+                    Criar Novo Leilão
+                </button>
+            </div>
+            <div class="bg-panel p-4 rounded-xl">
+                <table class="w-full text-left">
+                    <thead class="border-b border-accent">
+                        <tr>
+                            <th class="p-4 font-gobold text-lg text-text-medium">Nome do Leilão</th>
+                            <th class="p-4 font-gobold text-lg text-text-medium">Data</th>
+                            <th class="p-4 font-gobold text-lg text-text-medium">Status</th>
+                            <th class="p-4 font-gobold text-lg text-text-medium">Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${state.mockData.auctions.sort((a,b) => new Date(b.date) - new Date(a.date)).map(a => `
+                            <tr class="border-b border-white/5 hover:bg-white/5">
+                                <td class="p-4">${a.name}</td>
+                                <td class="p-4">${new Date(a.date).toLocaleDateString('pt-BR', {timeZone: 'UTC'})}</td>
+                                <td class="p-4"><span class="px-2 py-1 rounded-full text-sm font-bold ${a.status === 'Finalizado' ? 'bg-red-500/80 text-white' : (a.status === 'Em Andamento' ? 'bg-yellow-500/80 text-white' : 'bg-green-500/80 text-white')}">${a.status}</span></td>
+                                <td class="p-4">
+                                    <button onclick="manageAuction(${a.id})" class="bg-accent-cyan text-black px-3 py-1 rounded-md text-sm font-bold hover:bg-opacity-80">Gerenciar</button>
+                                    <button onclick="deleteAuction(${a.id})" class="bg-red-500/80 text-white px-3 py-1 rounded-md text-sm font-bold hover:bg-red-500 ml-2">Excluir</button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    }
+
+    function getAddCardHTML() {
+        return `
+            <h1 class="font-gobold text-4xl text-accent-cyan">Adicionar Cartas: <span class="text-white">${state.currentAuction.name}</span></h1>
+            <p class="mb-8 text-text-dark">Cadastre as cartas que farão parte deste leilão.</p>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div class="bg-panel p-6 rounded-xl">
+                    <h2 class="font-gobold text-2xl text-accent-cyan mb-4">Cadastro de Carta / Lote</h2>
+                    <form id="add-card-form" class="space-y-4">
+                         <div class="flex items-center space-x-4">
+                            <img id="card-preview" src="https://placehold.co/150x210/121124/BDBDBD?text=Subir+Foto" class="w-32 h-44 object-cover rounded-lg border-2 border-dashed border-accent">
+                            <div class="flex-1 space-y-2">
+                                <label for="card-image-upload" class="cursor-pointer bg-white/10 text-white w-full text-center px-4 py-2 rounded-lg hover:bg-white/20">Subir Foto da Carta</label>
+                                <input id="card-image-upload" type="file" class="hidden" accept="image/*" onchange="previewImage(event)">
+                                <button type="button" onclick="analyzeWithAI()" class="bg-accent-cyan text-black w-full px-4 py-2 rounded-lg font-bold hover:opacity-80">Analisar com IA</button>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div><label>Nome da Carta</label><input type="text" name="name" class="w-full p-2 bg-black/20 rounded-lg border border-accent mt-1"></div>
+                            <div><label>Número na Coleção</label><input type="text" name="collection" class="w-full p-2 bg-black/20 rounded-lg border border-accent mt-1"></div>
+                            <div><label>Condição</label><select name="condition" class="w-full p-2 bg-black/20 rounded-lg border border-accent mt-1"><option>Mint</option><option>Near Mint</option><option>Played</option><option>Heavily Played</option><option>Damaged</option></select></div>
+                            <div><label>Idioma</label><select name="language" class="w-full p-2 bg-black/20 rounded-lg border border-accent mt-1"><option>JP</option><option>EN</option><option>PT-BR</option><option>KOR</option></select></div>
+                            <div><label>Preço de Custo (R$)</label><input type="number" step="0.01" name="cost" class="w-full p-2 bg-black/20 rounded-lg border border-accent mt-1"></div>
+                            <div><label>Valor Inicial Sugerido (R$)</label><input type="number" step="0.01" name="initialValue" class="w-full p-2 bg-black/20 rounded-lg border border-accent mt-1"></div>
+                            <div><label>Valor de Arremate Sugerido (R$)</label><input type="number" step="0.01" name="marketValue" class="w-full p-2 bg-black/20 rounded-lg border border-accent mt-1"></div>
+                             <div><label>Incremento Mínimo (R$)</label><input type="number" name="increment" value="${state.settings.defaultIncrement}" class="w-full p-2 bg-black/20 rounded-lg border border-accent mt-1"></div>
+                        </div>
+                        <div class="flex justify-end pt-4">
+                             <button type="button" onclick="addCardToAuction()" class="btn-gradient px-6 py-2 rounded-lg text-white font-bold hover:opacity-90">Adicionar Carta</button>
+                        </div>
+                    </form>
+                </div>
+                <div class="bg-panel p-6 rounded-xl">
+                    <h2 class="font-gobold text-2xl text-accent-cyan mb-4">Fila de Cartas</h2>
+                    <div id="auction-card-queue" class="space-y-2 max-h-96 overflow-y-auto pr-2"></div>
+                    <div class="flex justify-end mt-6">
+                        <button onclick="concludeAuctionSetup()" class="bg-green-500 text-white px-6 py-3 rounded-lg font-bold hover:bg-green-600">Concluir e Ir para o Leilão</button>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+    
+    function startTimer(duration) {
+        let timer = duration;
+        const timerElement = document.getElementById('timer');
+        if (!timerElement) return;
+
+        clearInterval(state.liveTimer);
+        timerElement.textContent = timer;
+        timerElement.className = "font-gobold text-8xl text-green-400 transition-colors duration-500"; 
+
+        state.liveTimer = setInterval(() => {
+            timer--;
+            if (timerElement) {
+                timerElement.textContent = timer;
+                if (timer <= 10 && timer > 0) {
+                    timerElement.className = "font-gobold text-8xl text-red-500 animate-pulse transition-colors duration-500";
+                } else if (timer <= 15 && timer > 10) {
+                     timerElement.className = "font-gobold text-8xl text-yellow-400 transition-colors duration-500";
+                }
+            }
+            if (timer < 0) {
+                clearInterval(state.liveTimer);
+                if (timerElement) {
+                    timerElement.textContent = "0";
+                    timerElement.className = "font-gobold text-8xl text-red-500";
+                    showNotification("Tempo Esgotado!", 'error');
+                }
+            }
+        }, 1000);
+    }
+    
+    function getLiveAuctionHTML() {
+        return `
+            <div class="flex justify-between items-start mb-4">
+                 <div>
+                    <h1 class="font-gobold text-4xl text-accent-cyan">Controle do Leilão: AO VIVO</h1>
+                    <p class="text-xl text-text-dark">${state.currentAuction.name}</p>
+                 </div>
+                 <button onclick="finishAuction()" class="bg-red-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-red-700">Finalizar Leilão</button>
+            </div>
+            <div id="live-auction-content" class="grid grid-cols-1 lg:grid-cols-3 gap-8"></div>
+        `;
+    }
+
+    function updateLiveAuctionCard() {
+        const contentDiv = document.getElementById('live-auction-content');
+        if (!contentDiv) return;
+        
+        if (state.currentCardIndex === -1) {
+            contentDiv.innerHTML = `<div class="lg:col-span-3 text-center py-20 bg-panel rounded-xl">
+                <h2 class="font-gobold text-3xl text-accent-cyan">Leilão pronto para começar!</h2>
+                <button onclick="startAuctionNow(true)" class="mt-4 btn-gradient text-white px-10 py-4 rounded-lg font-bold text-xl shadow-lg hover:opacity-90">Iniciar Leilão?</button>
+            </div>`;
+            return;
+        }
+
+        if (state.currentCardIndex >= state.currentAuction.cardIds.length) {
+            contentDiv.innerHTML = `<div class="lg:col-span-3 text-center py-20 bg-panel rounded-xl">
+                <h2 class="font-gobold text-3xl text-green-500">Fim do Leilão!</h2>
+                <p class="text-xl mt-2">Todas as cartas foram processadas.</p>
+                <button onclick="finishAuction()" class="mt-6 bg-red-600 text-white px-8 py-4 rounded-lg font-bold hover:bg-red-700">FINALIZAR E VER RELATÓRIO</button>
+            </div>`;
+            return;
+        }
+
+        const cardId = state.currentAuction.cardIds[state.currentCardIndex];
+        const card = cardId ? state.mockData.cards.find(c => c.id === cardId) : null;
+
+        if (!card) {
+            showNotification('Erro: Carta não encontrada!', 'error');
+            nextCard(); 
+            return;
+        }
+
+        contentDiv.innerHTML = `
+            <div class="lg:col-span-2 bg-panel p-6 rounded-xl flex flex-col items-center justify-center">
+                 <img src="${card.img}" alt="${card.name}" class="max-h-96 rounded-lg shadow-2xl mb-6">
+                 <div id="timer" class="font-gobold text-8xl">${state.settings.defaultTimer}</div>
+            </div>
+            
+            <div class="bg-panel p-6 rounded-xl space-y-4">
+                <h2 class="font-gobold text-3xl text-accent-cyan">${card.name} <span class="text-lg text-text-dark">${card.collection}</span></h2>
+                <div class="text-lg space-y-2">
+                    <p><strong>Condição:</strong> ${card.condition}</p>
+                    <p><strong>Idioma:</strong> ${card.language}</p>
+                    <p><strong>Valor Inicial:</strong> <span class="font-bold text-yellow-400">R$ ${Number(card.initialValue).toFixed(2)}</span></p>
+                    <p><strong>Incremento Mínimo:</strong> R$ ${Number(card.increment).toFixed(2)}</p>
+                </div>
+                
+                <div class="bg-black/20 p-3 rounded-lg mt-4">
+                    <p id="whatsapp-script" class="text-sm whitespace-pre-wrap">${getWhatsappScript(card)}</p>
+                </div>
+                <button onclick="copyToClipboard('#whatsapp-script')" class="w-full bg-green-500 text-white p-3 rounded-lg font-bold hover:bg-green-600">Copiar Script para WhatsApp</button>
+                
+                <div class="pt-6 space-y-3">
+                    <button onclick="openArremateModal(${card.id})" class="w-full bg-accent-cyan text-black p-4 rounded-lg font-bold text-xl shadow-lg hover:opacity-90">Arrematar Carta</button>
+                    <button onclick="nextCard()" class="w-full bg-white/10 text-white p-3 rounded-lg font-bold hover:bg-white/20">Próxima Carta (Pular)</button>
+                </div>
+            </div>
+        `;
+        
+        startTimer(state.settings.defaultTimer);
+    }
+    
+    function fallbackCopyText(text) {
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        textArea.style.top = "0";
+        textArea.style.left = "0";
+        textArea.style.position = "fixed";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        try {
+            const successful = document.execCommand('copy');
+            showNotification(successful ? 'Copiado!' : 'Falha ao copiar.', successful ? 'success' : 'error');
+        } catch (err) {
+            showNotification('Falha ao copiar.', 'error');
+        }
+        document.body.removeChild(textArea);
+    }
+    
+    function copyToClipboard(elementSelector) {
+        const textToCopy = document.querySelector(elementSelector)?.innerText;
+        if (!textToCopy) {
+            showNotification('Nenhum texto para copiar.', 'error');
+            return;
+        }
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(textToCopy).then(() => {
+                showNotification('Copiado para a área de transferência!', 'success');
+            }).catch(() => fallbackCopyText(textToCopy));
+        } else {
+            fallbackCopyText(textToCopy);
+        }
+    }
+    
+    function openQuickClientModal() {
+        closeModal('arremate-modal');
+        openModal('quick-client-modal');
+    }
+
+    function saveQuickClient() {
+        const name = document.getElementById('quick-client-name').value;
+        const phone = document.getElementById('quick-client-phone').value;
+        if (!name || !phone) {
+            showNotification('Nome e telefone são obrigatórios.', 'error');
+            return;
+        }
+        const newClient = { id: Date.now(), name, phone, totalSpent: 0, city: 'A preencher', rg: '', cpf: '', email: '', cep:'', address:'', number:'', complement:'', district:'', state:'' };
+        state.mockData.clients.push(newClient);
+        closeModal('quick-client-modal');
+        showNotification(`Cliente ${name} cadastrado com sucesso!`, 'success');
+        document.getElementById('quick-client-name').value = '';
+        document.getElementById('quick-client-phone').value = '';
+        openModal('arremate-modal');
+        document.getElementById('client-search').value = newClient.name;
+    }
+
+    function getClientsHTML(searchTerm = '') {
+        const filteredClients = state.mockData.clients.filter(client => 
+            client.name.toLowerCase().includes(searchTerm.toLowerCase())
+        );
+
+        return `
+            <div class="flex justify-between items-center mb-8">
+                <h1 class="font-gobold text-4xl text-accent-cyan">Gerenciamento de Clientes</h1>
+                <input type="text" placeholder="Buscar cliente por nome..." onkeyup="renderPageContent('clients', this.value)" class="p-2 bg-panel rounded-lg w-1/3">
+            </div>
+            <div class="bg-panel p-4 rounded-xl">
+                <table class="w-full text-left">
+                    <thead class="border-b border-accent">
+                        <tr>
+                            <th class="p-4 font-gobold text-lg text-text-medium">Nome</th>
+                            <th class="p-4 font-gobold text-lg text-text-medium">Telefone</th>
+                            <th class="p-4 font-gobold text-lg text-text-medium">Cidade</th>
+                            <th class="p-4 font-gobold text-lg text-text-medium">Total Gasto</th>
+                            <th class="p-4 font-gobold text-lg text-text-medium text-right">Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${filteredClients.map(c => `
+                            <tr class="border-b border-white/5 hover:bg-white/5">
+                                <td class="p-4">${c.name}</td>
+                                <td class="p-4">${c.phone || 'N/A'}</td>
+                                <td class="p-4">${c.city || 'N/A'}</td>
+                                <td class="p-4 font-bold text-yellow-400">R$ ${c.totalSpent.toFixed(2)}</td>
+                                <td class="p-4 text-right">
+                                    <button onclick="openClientModal(${c.id})" class="bg-accent-cyan text-black px-3 py-1 rounded-md text-sm font-bold hover:bg-opacity-80">Editar</button>
+                                    <button onclick="deleteClient(${c.id})" class="bg-red-500/80 text-white px-3 py-1 rounded-md text-sm font-bold hover:bg-red-500 ml-2">Excluir</button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+            <div class="mt-6 flex justify-end">
+                <button onclick="openClientModal()" class="btn-gradient text-white px-6 py-3 rounded-lg font-bold hover:opacity-90 transition-opacity flex items-center">Adicionar Novo Cliente</button>
+            </div>
+        `;
+    }
+
+    function openClientModal(clientId = null) {
+        state.editingClientId = clientId;
+        const client = clientId ? state.mockData.clients.find(c => c.id === clientId) : {};
+        const modalContent = document.getElementById('client-modal-content');
+
+        modalContent.innerHTML = `
+            <h2 class="font-gobold text-2xl text-accent-cyan mb-4">${clientId ? 'Editar' : 'Adicionar Novo'} Cliente</h2>
+            <form id="client-form" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div><label>Nome Completo*</label><input type="text" name="name" value="${client.name || ''}" class="w-full p-2 bg-black/20 rounded-lg border border-accent mt-1"></div>
+                <div><label>Telefone*</label><input type="tel" name="phone" value="${client.phone || ''}" class="w-full p-2 bg-black/20 rounded-lg border border-accent mt-1"></div>
+                <div><label>Email</label><input type="email" name="email" value="${client.email || ''}" class="w-full p-2 bg-black/20 rounded-lg border border-accent mt-1"></div>
+                <div><label>Data de Nascimento</label><input type="date" name="birthday" value="${client.birthday || ''}" class="w-full p-2 bg-black/20 rounded-lg border border-accent mt-1 text-text-dark"></div>
+                <div><label>CPF</label><input type="text" name="cpf" value="${client.cpf || ''}" class="w-full p-2 bg-black/20 rounded-lg border border-accent mt-1"></div>
+                <div><label>RG</label><input type="text" name="rg" value="${client.rg || ''}" class="w-full p-2 bg-black/20 rounded-lg border border-accent mt-1"></div>
+                <hr class="md:col-span-2 my-2 border-accent">
+                <div><label>CEP</label><input type="text" name="cep" id="cep-input" value="${client.cep || ''}" class="w-full p-2 bg-black/20 rounded-lg border border-accent mt-1"></div>
+                <div><label>Endereço</label><input type="text" name="address" value="${client.address || ''}" class="w-full p-2 bg-black/20 rounded-lg border border-accent mt-1"></div>
+                <div><label>Número</label><input type="text" name="number" value="${client.number || ''}" class="w-full p-2 bg-black/20 rounded-lg border border-accent mt-1"></div>
+                <div><label>Complemento</label><input type="text" name="complement" value="${client.complement || ''}" class="w-full p-2 bg-black/20 rounded-lg border border-accent mt-1"></div>
+                <div><label>Bairro</label><input type="text" name="district" value="${client.district || ''}" class="w-full p-2 bg-black/20 rounded-lg border border-accent mt-1"></div>
+                <div><label>Cidade</label><input type="text" name="city" value="${client.city || ''}" class="w-full p-2 bg-black/20 rounded-lg border border-accent mt-1"></div>
+                <div><label>Estado</label><input type="text" name="state" value="${client.state || ''}" class="w-full p-2 bg-black/20 rounded-lg border border-accent mt-1"></div>
+            </form>
+            <div class="flex justify-end space-x-4 mt-6">
+                <button onclick="closeModal('client-modal')" class="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20">Cancelar</button>
+                <button onclick="saveClient()" class="btn-gradient px-4 py-2 rounded-lg text-white font-bold hover:opacity-90">Salvar Cliente</button>
+            </div>
+        `;
+
+        document.getElementById('cep-input').addEventListener('blur', handleCepInput);
+        openModal('client-modal');
+    }
+
+    async function handleCepInput(event) {
+        const cep = event.target.value.replace(/\D/g, '');
+        if (cep.length !== 8) return;
+
+        try {
+            const response = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+            const data = await response.json();
+            if (!data.erro) {
+                document.querySelector('#client-form [name="address"]').value = data.logradouro;
+                document.querySelector('#client-form [name="district"]').value = data.bairro;
+                document.querySelector('#client-form [name="city"]').value = data.localidade;
+                document.querySelector('#client-form [name="state"]').value = data.uf;
+            } else { showNotification('CEP não encontrado.', 'error'); }
+        } catch (error) { showNotification('Erro ao buscar CEP.', 'error'); }
+    }
+
+    function saveClient() {
+        const form = document.getElementById('client-form');
+        const formData = new FormData(form);
+        const clientData = Object.fromEntries(formData.entries());
+
+        if (!clientData.name || !clientData.phone) {
+            showNotification('Nome e Telefone são obrigatórios.', 'error');
+            return;
+        }
+
+        if (state.editingClientId) {
+            const index = state.mockData.clients.findIndex(c => c.id === state.editingClientId);
+            state.mockData.clients[index] = { ...state.mockData.clients[index], ...clientData };
+            showNotification('Cliente atualizado com sucesso!', 'success');
+        } else {
+            state.mockData.clients.push({ id: Date.now(), ...clientData, totalSpent: 0 });
+            showNotification('Cliente adicionado com sucesso!', 'success');
+        }
+        closeModal('client-modal');
+        renderPageContent('clients');
+    }
+    
+    function deleteAuction(auctionId) {
+        const confirmBtn = document.getElementById('confirm-delete-auction-btn');
+        if (confirmBtn) {
+            confirmBtn.onclick = () => confirmDeleteAuction(auctionId);
+            openModal('delete-auction-confirmation-modal');
+        }
+    }
+    
+    function confirmDeleteAuction(auctionId) {
+        state.mockData.auctions = state.mockData.auctions.filter(a => a.id !== auctionId);
+        closeModal('delete-auction-confirmation-modal');
+        showNotification('Leilão excluído com sucesso.', 'success');
+        renderPageContent('auctions');
+    }
+
+    function deleteClient(clientId) {
+        const confirmBtn = document.getElementById('confirm-delete-client-btn');
+        if (confirmBtn) {
+            confirmBtn.onclick = () => confirmDeleteClient(clientId);
+            openModal('delete-client-confirmation-modal');
+        }
+    }
+    
+    function confirmDeleteClient(clientId) {
+        state.mockData.clients = state.mockData.clients.filter(c => c.id !== clientId);
+        closeModal('delete-client-confirmation-modal');
+        showNotification('Cliente excluído com sucesso.', 'success');
+        renderPageContent('clients');
+    }
+
+    function analyzeWithAI() {
+        const preview = document.getElementById('card-preview');
+        if (preview.src.startsWith('https://placehold.co')) {
+            showNotification('Por favor, suba uma imagem da carta primeiro.', 'error');
+            return;
+        }
+        showNotification('Analisando imagem com IA...');
+        
+        setTimeout(() => {
+            const randomCard = state.mockData.cardDatabase[Math.floor(Math.random() * state.mockData.cardDatabase.length)];
+            const form = document.getElementById('add-card-form');
+            
+            form.querySelector('[name="name"]').value = randomCard.pt_name;
+            form.querySelector('[name="collection"]').value = randomCard.collection;
+            form.querySelector('[name="condition"]').value = randomCard.condition;
+            form.querySelector('[name="language"]').value = randomCard.language;
+            form.querySelector('[name="cost"]').value = randomCard.cost;
+            form.querySelector('[name="initialValue"]').value = randomCard.initialValue;
+            form.querySelector('[name="marketValue"]').value = randomCard.marketValue;
+            form.querySelector('[name="increment"]').value = randomCard.increment;
+            
+            showNotification('Dados da carta preenchidos pela IA!', 'success');
+        }, 2000);
+    }
+
+    // --- NEW & UPDATED FUNCTIONS ---
+    
+    function getReportsPageHTML() {
+        const finalizedAuctions = state.mockData.auctions.filter(a => a.status === 'Finalizado').sort((a,b) => new Date(b.date) - new Date(a.date));
+        return `
+            <div class="flex justify-between items-center mb-8">
+                <h1 class="font-gobold text-4xl text-accent-cyan">Central de Relatórios</h1>
+            </div>
+            <div class="bg-panel p-4 rounded-xl">
+                 <h2 class="font-gobold text-2xl text-white mb-4 p-4">Relatórios de Leilões Finalizados</h2>
+                <table class="w-full text-left">
+                    <thead class="border-b border-accent">
+                        <tr>
+                            <th class="p-4 font-gobold text-lg text-text-medium">Nome do Leilão</th>
+                            <th class="p-4 font-gobold text-lg text-text-medium">Data</th>
+                            <th class="p-4 font-gobold text-lg text-text-medium">Faturamento</th>
+                            <th class="p-4 font-gobold text-lg text-text-medium">Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${finalizedAuctions.length > 0 ? finalizedAuctions.map(a => `
+                            <tr class="border-b border-white/5 hover:bg-white/5">
+                                <td class="p-4">${a.name}</td>
+                                <td class="p-4">${new Date(a.date).toLocaleDateString('pt-BR', {timeZone: 'UTC'})}</td>
+                                <td class="p-4 font-bold text-yellow-400">R$ ${a.totalBilled.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</td>
+                                <td class="p-4"><button onclick="navigate('auction-report', ${a.id})" class="bg-accent-cyan text-black px-3 py-1 rounded-md text-sm font-bold hover:bg-opacity-80">Ver Relatório</button></td>
+                            </tr>
+                        `).join('') : `<tr><td colspan="4" class="text-center p-8 text-text-dark">Nenhum leilão finalizado ainda.</td></tr>`}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    }
+
+    function openNewAuctionModal() {
+        document.getElementById('new-auction-name').value = '';
+        const today = new Date().toISOString().split('T')[0];
+        document.getElementById('new-auction-date').value = today;
+        openModal('new-auction-modal');
+    }
+
+    function saveNewAuction() {
+        const name = document.getElementById('new-auction-name').value;
+        const date = document.getElementById('new-auction-date').value;
+        if (!name || !date) {
+            showNotification('Nome e data do leilão são obrigatórios!', 'error');
+            return;
+        }
+        const newId = Date.now();
+        const newAuction = { id: newId, name, date, totalBilled: 0, cardIds: [], winningBids: [], participants: 0, status: 'Agendado' };
+        state.mockData.auctions.unshift(newAuction); // Add to the top
+        state.currentAuction = newAuction;
+        closeModal('new-auction-modal');
+        navigate('add-card');
+    }
+
+    function manageAuction(auctionId) {
+        const auction = state.mockData.auctions.find(a => a.id === auctionId);
+        if (!auction) return;
+        state.currentAuction = auction;
+
+        switch(auction.status) {
+            case 'Agendado':
+                state.currentCardIndex = -1; // Ensure it starts fresh
+                navigate('live-auction');
+                break;
+            case 'Em Andamento':
+                state.currentCardIndex = auction.winningBids.length; // Resume from where it left off
+                navigate('live-auction');
+                break;
+            case 'Finalizado':
+                navigate('auction-report', auctionId);
+                break;
+        }
+    }
+    
+    function concludeAuctionSetup() {
+        if (state.currentAuction.cardIds.length === 0) {
+            showNotification('Adicione pelo menos uma carta antes de iniciar o leilão!', 'error');
+            return;
+        }
+        openModal('start-auction-confirmation-modal');
+    }
+
+    function startAuctionNow(fromLiveScreen = false) {
+        if(!fromLiveScreen) {
+             state.currentAuction.status = 'Em Andamento';
+             closeModal('start-auction-confirmation-modal');
+             state.currentCardIndex = 0; 
+             showNotification('Leilão iniciado!', 'success');
+             navigate('live-auction');
+        } else {
+             state.currentCardIndex = 0; 
+             updateLiveAuctionCard();
+        }
+       
+    }
+
+    function startAuctionLater() {
+        state.currentAuction.status = 'Agendado'; // It's already 'Agendado', but we confirm
+        closeModal('start-auction-confirmation-modal');
+        showNotification('Leilão arquivado para iniciar depois.', 'success');
+        navigate('auctions');
+    }
+
+    function addCardToAuction() {
+        const form = document.getElementById('add-card-form');
+        const formData = new FormData(form);
+        const newCard = { id: Date.now(), img: document.getElementById('card-preview').src, ...Object.fromEntries(formData.entries()) };
+        
+        if (!newCard.name || !newCard.initialValue) {
+            showNotification('Nome e Valor Inicial são obrigatórios!', 'error'); return;
+        }
+        // Convert numeric values
+        newCard.cost = parseFloat(newCard.cost) || 0;
+        newCard.initialValue = parseFloat(newCard.initialValue) || 0;
+        newCard.marketValue = parseFloat(newCard.marketValue) || 0;
+        newCard.increment = parseFloat(newCard.increment) || state.settings.defaultIncrement;
+
+        state.mockData.cards.push(newCard);
+        state.currentAuction.cardIds.push(newCard.id);
+        
+        showNotification('Carta adicionada com sucesso!', 'success');
+        renderAuctionCardQueue();
+        form.reset();
+        document.getElementById('card-preview').src = 'https://placehold.co/150x210/121124/BDBDBD?text=Subir+Foto';
+        form.increment.value = state.settings.defaultIncrement;
+    }
+
+    function renderAuctionCardQueue() {
+         const queueDiv = document.getElementById('auction-card-queue');
+         if(!queueDiv || !state.currentAuction) return;
+         const cardsInAuction = state.currentAuction.cardIds.map(cardId => state.mockData.cards.find(c => c.id === cardId)).filter(Boolean);
+         if (cardsInAuction.length > 0) {
+             queueDiv.innerHTML = cardsInAuction.map(card => `
+                <div class="flex items-center justify-between p-2 bg-black/20 rounded-lg">
+                    <div class="flex items-center">
+                        <img src="${card.img}" class="w-10 h-14 object-cover rounded-md mr-4">
+                        <span>${card.name}</span>
+                    </div>
+                    <span class="text-sm text-text-dark">R$ ${Number(card.initialValue).toFixed(2)}</span>
+                </div>
+            `).join('');
+         } else {
+            queueDiv.innerHTML = '<p class="text-text-dark">Nenhuma carta na fila.</p>';
+         }
+    }
+    
+    function filterClients(searchTerm) {
+        const suggestionsDiv = document.getElementById('client-suggestions');
+        if (!searchTerm) {
+            suggestionsDiv.innerHTML = '';
+            return;
+        }
+        const filteredClients = state.mockData.clients.filter(c => c.name.toLowerCase().includes(searchTerm.toLowerCase()));
+        suggestionsDiv.innerHTML = filteredClients.map(c => 
+            `<div class="p-2 hover:bg-white/10 cursor-pointer" onclick="selectClient(${c.id})">${c.name}</div>`
+        ).join('');
+    }
+
+    function selectClient(clientId) {
+        const client = state.mockData.clients.find(c => c.id === clientId);
+        document.getElementById('client-search').value = client.name;
+        document.getElementById('client-suggestions').innerHTML = '';
+    }
+
+    function confirmArremate(cardId) {
+        const arremateValue = parseFloat(document.getElementById('arremate-value').value);
+        const clientName = document.getElementById('client-search').value;
+        const client = state.mockData.clients.find(c => c.name === clientName);
+
+        if(!client || isNaN(arremateValue) || arremateValue <= 0) {
+            showNotification('Selecione um cliente válido e defina um valor de arremate positivo.', 'error');
+            return;
+        }
+
+        state.currentAuction.winningBids.push({
+            cardId: cardId,
+            clientId: client.id,
+            finalValue: arremateValue
+        });
+        
+        client.totalSpent += arremateValue;
+        
+        showNotification(`Carta arrematada por ${client.name} por R$ ${arremateValue.toFixed(2)}!`, 'success');
+        closeModal('arremate-modal');
+        document.getElementById('client-search').value = '';
+        nextCard();
+    }
+
+    function finishAuction() {
+        const auction = state.currentAuction;
+        if (!auction) return;
+        
+        auction.totalBilled = auction.winningBids.reduce((sum, bid) => sum + bid.finalValue, 0);
+        auction.status = 'Finalizado';
+
+        showNotification('Leilão finalizado! Gerando relatório...', 'success');
+        state.currentAuction = null;
+        navigate('auction-report', auction.id);
+    }
+    
+    function getAuctionReportHTML(auctionId) {
+        const auction = state.mockData.auctions.find(a => a.id === auctionId);
+        if (!auction) return `<h1 class="font-gobold text-4xl text-red-500">Leilão não encontrado.</h1>`;
+
+        const winningBids = auction.winningBids;
+        const winners = {}; // Group bids by client
+        winningBids.forEach(bid => {
+            if (!winners[bid.clientId]) {
+                winners[bid.clientId] = {
+                    client: state.mockData.clients.find(c => c.id === bid.clientId),
+                    bids: []
+                };
+            }
+            if(winners[bid.clientId].client) {
+                winners[bid.clientId].bids.push(bid);
+            }
+        });
+
+        return `
+            <div class="flex justify-between items-center mb-6">
+                <div>
+                    <h1 class="font-gobold text-4xl text-accent-cyan">Relatório: ${auction.name}</h1>
+                    <p class="text-text-dark">Realizado em: ${new Date(auction.date).toLocaleDateString('pt-BR', {timeZone: 'UTC'})}</p>
+                </div>
+                <button onclick="navigate('reports')" class="bg-white/10 px-4 py-2 rounded-lg hover:bg-white/20">Voltar para Relatórios</button>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                <div class="bg-panel p-6 rounded-xl"><h2 class="font-gobold text-lg text-text-dark">FATURAMENTO TOTAL</h2><p class="text-4xl font-bold text-text-light">R$ ${auction.totalBilled.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p></div>
+                <div class="bg-panel p-6 rounded-xl"><h2 class="font-gobold text-lg text-text-dark">CARTAS VENDIDAS</h2><p class="text-4xl font-bold text-text-light">${winningBids.length}</p></div>
+                <div class="bg-panel p-6 rounded-xl"><h2 class="font-gobold text-lg text-text-dark">ARREMATADORES ÚNICOS</h2><p class="text-4xl font-bold text-text-light">${Object.keys(winners).length}</p></div>
+            </div>
+
+            <div class="bg-panel p-6 rounded-xl">
+                <h2 class="font-gobold text-2xl text-accent-cyan mb-4">Lista de Arremates</h2>
+                <div class="space-y-4">
+                ${Object.keys(winners).length > 0 ? Object.values(winners).map(winnerData => {
+                    const client = winnerData.client;
+                    const clientTotal = winnerData.bids.reduce((sum, b) => sum + b.finalValue, 0);
+                    return `
+                        <div class="bg-black/20 p-4 rounded-lg">
+                            <div class="flex justify-between items-center mb-3">
+                                <h3 class="text-xl font-bold">${client.name} - Total: <span class="text-yellow-400">R$ ${clientTotal.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</span></h3>
+                                <button onclick="openIndividualReportModal(${client.id}, ${auction.id})" class="bg-accent-cyan text-black px-3 py-1 rounded-md text-sm font-bold hover:bg-opacity-80">Gerar Relatório Individual</button>
+                            </div>
+                            <table class="w-full text-left">
+                                ${winnerData.bids.map(bid => {
+                                    const card = state.mockData.cards.find(c => c.id === bid.cardId);
+                                    return card ? `
+                                    <tr class="border-t border-white/10">
+                                        <td class="p-2"><img src="${card.img}" class="w-12 h-16 object-cover rounded"></td>
+                                        <td class="p-2">${card.name}</td>
+                                        <td class="p-2 text-right font-bold">R$ ${bid.finalValue.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</td>
+                                    </tr>
+                                    ` : '';
+                                }).join('')}
+                            </table>
+                        </div>
+                    `;
+                }).join('') : '<p class="text-text-dark text-center py-4">Nenhuma carta foi arrematada neste leilão.</p>'}
+                </div>
+            </div>
+        `;
+    }
+
+    function updateReportTotals(clientTotal) {
+        const freightCost = parseFloat(document.getElementById('manual-freight').value) || 0;
+        const total = clientTotal + freightCost;
+        document.getElementById('report-freight-cost').textContent = `R$ ${freightCost.toLocaleString('pt-BR', {minimumFractionDigits: 2})}`;
+        document.getElementById('report-total-payable').textContent = `R$ ${total.toLocaleString('pt-BR', {minimumFractionDigits: 2})}`;
+    }
+
+    function generatePdf(clientName) {
+        const { jsPDF } = window.jspdf;
+        const reportElement = document.getElementById('printable-report');
+        if (!reportElement) return;
+
+        showNotification('Gerando PDF...', 'success');
+
+        const originalClasses = reportElement.className;
+        reportElement.className = `${originalClasses} printing-mode`;
+
+        html2canvas(reportElement, {
+            scale: 2, 
+            useCORS: true,
+            backgroundColor: '#ffffff'
+        }).then(canvas => {
+            reportElement.className = originalClasses;
+            const imgData = canvas.toDataURL('image/png');
+            const pdf = new jsPDF({
+                orientation: 'p',
+                unit: 'mm',
+                format: 'a4'
+            });
+
+            const imgProps = pdf.getImageProperties(imgData);
+            const pdfWidth = pdf.internal.pageSize.getWidth();
+            const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+            
+            pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+            
+            const fileName = `relatorio-${clientName.replace(/\s+/g, '-').toLowerCase()}.pdf`;
+            pdf.save(fileName);
+
+        }).catch(err => {
+            reportElement.className = originalClasses;
+            console.error("Erro ao gerar PDF:", err);
+            showNotification('Ocorreu um erro ao gerar o PDF.', 'error');
+        });
+    }
+
+    function openIndividualReportModal(clientId, auctionId) {
+        const client = state.mockData.clients.find(c => c.id === clientId);
+        const auction = state.mockData.auctions.find(a => a.id === auctionId);
+        if(!client || !auction) {
+            showNotification('Erro: Cliente ou leilão não encontrado.', 'error');
+            return;
+        }
+        
+        const clientBids = auction.winningBids.filter(b => b.clientId === clientId);
+        const clientTotal = clientBids.reduce((sum, b) => sum + b.finalValue, 0);
+
+        const modalContent = document.getElementById('individual-report-content');
+        modalContent.innerHTML = `
+            <div id="printable-report" class="bg-panel p-6">
+                <div class="flex justify-between items-start pb-4 border-b border-accent mb-4">
+                    <div>
+                        <h2 class="font-gobold text-2xl text-accent-cyan">Cavallin TCG Store - Relatório de Arremates</h2>
+                        <p class="text-sm text-text-dark">Cliente: ${client.name}</p>
+                        <p class="text-sm text-text-dark">Data de Emissão: ${new Date().toLocaleDateString('pt-BR')}</p>
+                    </div>
+                    <img src="https://i.ibb.co/MfZ8G2s/espeon-logo-cavallin-tcg-store.jpg" alt="Logo" class="w-16 h-16 rounded-full">
+                </div>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                    <div class="bg-black/20 p-4 rounded-lg">
+                        <h3 class="font-gobold text-lg text-accent-cyan mb-2">Informações Pessoais</h3>
+                        <div class="text-sm space-y-1">
+                            <p><strong>CPF:</strong> ${client.cpf || 'Não informado'}</p>
+                            <p><strong>RG:</strong> ${client.rg || 'Não informado'}</p>
+                            <p><strong>Email:</strong> ${client.email || 'Não informado'}</p>
+                            <p><strong>Telefone:</strong> ${client.phone || 'Não informado'}</p>
+                        </div>
+                    </div>
+                     <div class="bg-black/20 p-4 rounded-lg">
+                        <h3 class="font-gobold text-lg text-accent-cyan mb-2">Endereço de Envio</h3>
+                        <div class="text-sm space-y-1">
+                            <p>${client.address || 'Não informado'}, ${client.number || ''}</p>
+                            <p>${client.district || ''}</p>
+                            <p>CEP: ${client.cep || 'Não informado'}</p>
+                            <p>${client.city || 'Não informado'} / ${client.state || ''}</p>
+                        </div>
+                    </div>
+                </div>
+
+                <h3 class="font-gobold text-xl text-accent-cyan mb-2">Histórico de Arremates (Leilão: ${auction.name})</h3>
+                <div class="bg-black/20 p-2 rounded-lg">
+                    <table class="w-full text-left text-sm mb-4">
+                        <thead class="border-b-2 border-accent"><tr><th class="p-2">Carta</th><th class="p-2 text-right">Valor</th></tr></thead>
+                        <tbody>
+                            ${clientBids.map(bid => {
+                                const card = state.mockData.cards.find(c => c.id === bid.cardId);
+                                return card ? `
+                                <tr class="border-b border-white/10 last:border-b-0">
+                                    <td class="p-2 flex items-center">
+                                        <img src="${card.img}" class="w-10 h-14 object-cover rounded-md mr-3">
+                                        <span>${card.name} (${card.collection})</span>
+                                    </td>
+                                    <td class="p-2 text-right font-bold">R$ ${bid.finalValue.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</td>
+                                </tr>` : '';
+                            }).join('')}
+                        </tbody>
+                    </table>
+                </div>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+                    <div class="bg-black/20 p-4 rounded-lg">
+                        <h3 class="font-gobold text-lg text-accent-cyan mb-2">Detalhes do Envio e Pagamento</h3>
+                        <div class="space-y-2 text-sm">
+                            <label class="block"><strong>Custo do Frete Manual (R$):</strong></label>
+                            <input type="number" id="manual-freight" onkeyup="updateReportTotals(${clientTotal})" placeholder="25.00" class="w-full p-2 bg-black/30 rounded-lg border border-accent mt-1">
+                        </div>
+                    </div>
+                    <div class="bg-black/20 p-4 rounded-lg flex flex-col justify-center">
+                         <div class="space-y-2 text-right">
+                            <p><strong>Arremates:</strong> R$ ${clientTotal.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p>
+                            <p><strong>Frete:</strong> <span id="report-freight-cost">R$ 0,00</span></p>
+                            <p class="text-xl font-bold mt-2">Total a Pagar: <span id="report-total-payable" class="text-accent-cyan">R$ ${clientTotal.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</span></p>
+                         </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex justify-end space-x-4 mt-6 no-print">
+                <button onclick="closeModal('individual-report-modal')" class="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20">Fechar</button>
+                <button onclick="generatePdf('${client.name}')" class="px-4 py-2 rounded-lg bg-accent-cyan text-black font-bold hover:opacity-80">Gerar PDF</button>
+            </div>
+        `;
+        openModal('individual-report-modal');
+    }
+
+    function getSettingsHTML() {
+        return `
+            <h1 class="font-gobold text-4xl text-accent-cyan mb-8">Configurações</h1>
+            <div class="space-y-8">
+                
+                <!-- Aparência e Usabilidade -->
+                <div class="bg-panel p-6 rounded-xl">
+                    <h2 class="font-gobold text-2xl text-white mb-4 border-b border-accent pb-2">Aparência e Usabilidade</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                            <label class="font-bold">Tamanho da Fonte</label>
+                            <select id="font-size-setting" onchange="applySetting('fontSize', this.value)" class="w-full p-2 bg-black/20 rounded-lg border border-accent mt-1">
+                                <option value="14px" ${state.settings.fontSize === '14px' ? 'selected' : ''}>Pequena</option>
+                                <option value="16px" ${state.settings.fontSize === '16px' ? 'selected' : ''}>Média</option>
+                                <option value="18px" ${state.settings.fontSize === '18px' ? 'selected' : ''}>Grande</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="font-bold">Idioma</label>
+                            <select class="w-full p-2 bg-black/20 rounded-lg border border-accent mt-1 opacity-50 cursor-not-allowed">
+                                <option>Português (Brasil)</option>
+                                <option disabled>Inglês (Em breve)</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Gerenciamento de Leilões -->
+                <div class="bg-panel p-6 rounded-xl">
+                    <h2 class="font-gobold text-2xl text-white mb-4 border-b border-accent pb-2">Gerenciamento de Leilões</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                         <div>
+                            <label for="default-increment" class="font-bold">Incremento Padrão de Lance (R$)</label>
+                            <input type="number" id="default-increment" value="${state.settings.defaultIncrement}" onchange="applySetting('defaultIncrement', this.value)" class="w-full p-2 bg-black/20 rounded-lg border border-accent mt-1">
+                        </div>
+                        <div>
+                            <label for="default-timer" class="font-bold">Duração Padrão do Timer (segundos)</label>
+                            <input type="number" id="default-timer" value="${state.settings.defaultTimer}" onchange="applySetting('defaultTimer', this.value)" class="w-full p-2 bg-black/20 rounded-lg border border-accent mt-1">
+                        </div>
+                    </div>
+                    <div class="mt-6">
+                        <label for="whatsapp-template" class="font-bold">Modelo de Script do WhatsApp</label>
+                        <textarea id="whatsapp-template" onchange="applySetting('whatsappTemplate', this.value)" rows="5" class="w-full p-2 bg-black/20 rounded-lg border border-accent mt-1 text-sm">${state.settings.whatsappTemplate}</textarea>
+                        <div class="flex justify-end mt-2">
+                             <button onclick="resetWhatsappTemplate()" class="text-accent-cyan hover:underline text-xs">Resetar para Padrão</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Dados e Conexões -->
+                <div class="bg-panel p-6 rounded-xl">
+                    <h2 class="font-gobold text-2xl text-white mb-4 border-b border-accent pb-2">Dados e Conexões</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <button onclick="exportData()" class="bg-accent-cyan text-black px-6 py-3 rounded-lg font-bold hover:opacity-90 transition-opacity">Exportar Todos os Dados</button>
+                        <div>
+                            <label for="import-file" class="bg-white/10 text-white w-full text-center px-6 py-3 rounded-lg font-bold hover:bg-white/20 transition-colors cursor-pointer block">Importar Dados</label>
+                            <input type="file" id="import-file" class="hidden" onchange="importData(event)" accept=".json">
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Informações -->
+                <div class="bg-panel p-6 rounded-xl text-center">
+                    <h2 class="font-gobold text-2xl text-white mb-4 border-b border-accent pb-2">Informações</h2>
+                    <p class="text-text-dark">Versão do Aplicativo: 7.2.0</p>
+                     <div class="mt-4 space-x-4">
+                        <button onclick="showInfoModal('terms')" class="text-accent-cyan hover:underline">Termos de Uso</button>
+                        <button onclick="showInfoModal('privacy')" class="text-accent-cyan hover:underline">Política de Privacidade</button>
+                     </div>
+                     <a href="https://wa.me/5516997848710" target="_blank" class="mt-6 inline-block bg-green-500 text-white px-6 py-3 rounded-lg font-bold hover:bg-green-600 transition-colors">Falar com Suporte</a>
+                </div>
+
+            </div>
+        `;
+    }
+    
+    // --- INITIALIZATION ---
+    document.addEventListener('DOMContentLoaded', () => {
+        const splash = document.getElementById('splash-screen');
+        setTimeout(() => {
+            splash.style.opacity = '0';
+            setTimeout(() => { splash.style.display = 'none'; }, 500);
+        }, 1500);
+        
+        applySetting('fontSize', state.settings.fontSize, true);
+        navigate('dashboard');
+        
+        document.getElementById('toggle-sidebar').addEventListener('click', () => {
+            const sidebar = document.getElementById('sidebar');
+            sidebar.classList.toggle('md:w-64');
+            sidebar.classList.toggle('w-16');
+            document.querySelectorAll('#sidebar nav span').forEach(span => span.classList.toggle('hidden'));
+        });
+        
+        // Expose functions to global scope
+        window.navigate = navigate; window.openModal = openModal; window.closeModal = closeModal;
+        window.openNewAuctionModal = openNewAuctionModal; window.saveNewAuction = saveNewAuction; window.manageAuction = manageAuction;
+        window.concludeAuctionSetup = concludeAuctionSetup; window.nextCard = function() { state.currentCardIndex++; updateLiveAuctionCard(); };
+        window.openArremateModal = function(cardId) {
+            const card = state.mockData.cards.find(c => c.id === cardId);
+            document.getElementById('modal-card-info').innerHTML = `<div class="flex items-center mb-4"><img src="${card.img}" class="w-16 h-22 object-cover rounded-md mr-4"><div><p class="font-bold">${card.name}</p><p class="text-sm text-text-dark">Valor Inicial: R$ ${Number(card.initialValue).toFixed(2)}</p></div></div>`;
+            document.getElementById('arremate-value').value = card.initialValue;
+            document.getElementById('confirm-arremate-btn').onclick = () => confirmArremate(cardId);
+            openModal('arremate-modal');
+        };
+        window.confirmArremate = confirmArremate; window.finishAuction = finishAuction; window.addCardToAuction = addCardToAuction;
+        window.renderAuctionCardQueue = renderAuctionCardQueue;
+        window.analyzeWithAI = analyzeWithAI;
+        window.previewImage = function(event) {
+            const reader = new FileReader();
+            reader.onload = function(){ document.getElementById('card-preview').src = reader.result; };
+            if (event.target.files[0]) {
+                reader.readAsDataURL(event.target.files[0]);
+            }
+        };
+        window.openClientModal = openClientModal;
+        window.saveClient = saveClient;
+        window.deleteClient = deleteClient;
+        window.confirmDeleteClient = confirmDeleteClient;
+        window.handleCepInput = handleCepInput;
+        window.getSettingsHTML = getSettingsHTML;
+        window.copyToClipboard = copyToClipboard;
+        window.openQuickClientModal = openQuickClientModal;
+        window.saveQuickClient = saveQuickClient;
+        window.filterClients = filterClients;
+        window.selectClient = selectClient;
+        window.openIndividualReportModal = openIndividualReportModal;
+        window.updateReportTotals = updateReportTotals;
+        window.generatePdf = generatePdf;
+        window.startAuctionNow = startAuctionNow;
+        window.startAuctionLater = startAuctionLater;
+        window.deleteAuction = deleteAuction;
+        window.confirmDeleteAuction = confirmDeleteAuction;
+        window.applySetting = applySetting;
+        window.resetWhatsappTemplate = resetWhatsappTemplate;
+        window.exportData = exportData;
+        window.importData = importData;
+        window.showInfoModal = showInfoModal;
+        window.handleDateFilterChange = handleDateFilterChange;
+    });
+
+    function applySetting(key, value, isInitial = false) {
+        if (key === 'fontSize') {
+            document.documentElement.style.fontSize = value;
+            state.settings.fontSize = value;
+        } else if(key === 'defaultIncrement' || key === 'defaultTimer') {
+             state.settings[key] = parseFloat(value);
+        } else {
+            state.settings[key] = value;
+        }
+
+        if(!isInitial) {
+            showNotification('Configuração salva!', 'success');
+        }
+    }
+
+    function getWhatsappScript(card) {
+        let script = state.settings.whatsappTemplate;
+        script = script.replace(/\[Nome da Carta\]/g, card.name);
+        script = script.replace(/\[Numeração da Carta\]/g, card.collection);
+        script = script.replace(/\[Condição\]/g, card.condition);
+        script = script.replace(/\[Valor de Mercado\]/g, Number(card.marketValue).toFixed(2));
+        script = script.replace(/\[Idioma\]/g, card.language);
+        script = script.replace(/\[Valor Inicial\]/g, Number(card.initialValue).toFixed(2));
+        script = script.replace(/\[Incremento Mínimo\]/g, Number(card.increment).toFixed(2));
+        return script;
+    }
+
+    function resetWhatsappTemplate() {
+        const defaultTemplate = '⚫ Identificação: [Nome da Carta] ([Numeração da Carta])\n🧐 Condição: [Condição]\n💰 Valor Liga: R$ [Valor de Mercado]\n🇯🇵 Idioma: [Idioma]\n🤑 Valor inicial: R$ [Valor Inicial]\n📈 Incremento mínimo: R$ [Incremento Mínimo]';
+        state.settings.whatsappTemplate = defaultTemplate;
+        document.getElementById('whatsapp-template').value = defaultTemplate;
+        showNotification('Template restaurado para o padrão.', 'success');
+    }
+
+    function exportData() {
+        const dataStr = JSON.stringify(state.mockData, null, 2);
+        const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
+        const exportFileDefaultName = 'cavallin_tcg_backup.json';
+
+        const linkElement = document.createElement('a');
+        linkElement.setAttribute('href', dataUri);
+        linkElement.setAttribute('download', exportFileDefaultName);
+        linkElement.click();
+        showNotification('Dados exportados com sucesso!', 'success');
+    }
+
+    function importData(event) {
+        const file = event.target.files[0];
+        if (!file) {
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            try {
+                const importedData = JSON.parse(e.target.result);
+                // Basic validation
+                if (importedData.clients && importedData.auctions && importedData.cards) {
+                    if(confirm("Tem certeza que deseja importar estes dados? Todos os dados atuais serão substituídos.")) {
+                        state.mockData = importedData;
+                        navigate('dashboard');
+                        showNotification('Dados importados com sucesso!', 'success');
+                    }
+                } else {
+                    throw new Error("Formato de arquivo inválido.");
+                }
+            } catch (error) {
+                showNotification(`Erro ao importar dados: ${error.message}`, 'error');
+            }
+        };
+        reader.readAsText(file);
+        event.target.value = ''; // Reset input
+    }
+
+    function showInfoModal(type) {
+        const modalContent = document.getElementById('info-modal-content');
+        let title = '';
+        let content = '';
+
+        if(type === 'terms') {
+            title = 'Termos de Uso';
+            content = '<p>Estes são os termos de uso do aplicativo. Ao usar este software, você concorda com todos os termos aqui descritos...</p>';
+        } else {
+            title = 'Política de Privacidade';
+            content = '<p>Nós nos preocupamos com sua privacidade. As informações coletadas são usadas exclusivamente para a funcionalidade do aplicativo e não são compartilhadas com terceiros...</p>';
+        }
+
+        modalContent.innerHTML = `
+            <h2 class="font-gobold text-2xl text-accent-cyan mb-4">${title}</h2>
+            <div class="text-text-dark space-y-4">${content}</div>
+            <div class="flex justify-end mt-6">
+                 <button onclick="closeModal('info-modal')" class="px-4 py-2 rounded-lg bg-accent-cyan text-black font-bold hover:opacity-80">Fechar</button>
+            </div>
+        `;
+        openModal('info-modal');
+    }
+
+</script>
+</body>
+</html>
